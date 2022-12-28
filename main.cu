@@ -5,11 +5,13 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define N 10 // [TODO] Turn into flag
-#define BLOCKWIDTH 32 // [TODO] Turn into flag
-#define NUMTESTS 10 // [TODO] Turn into flag
-#define DO_CHECKS true
+// Custom library
+#include "data.h"
 
+#define N 800
+#define BLOCKWIDTH 32
+#define NUMTESTS 10
+#define DO_CHECKS false
 
 void rand_seed() {
     // Set randomizer seed
@@ -64,7 +66,7 @@ void floyd_warshall_cpu(float *A, int size) {
 	}
 }
 
-void test_floyd_warshall_cpu() {
+void test_floyd_warshall_cpu(datawrite *writer) {
     double total_time_cpu = 0;
     for (int i = 0; i < NUMTESTS; i++) {
         // Clear device mem and cache
@@ -148,7 +150,7 @@ void fw(
     }
 }
 
-void test_floyd_warshall_gpu() {
+void test_floyd_warshall_gpu(datawrite *writer) {
 
     double total_time_gpu = 0;
 
@@ -194,6 +196,10 @@ void test_floyd_warshall_gpu() {
 
         printf("GPU: Test %d took %.7f seconds\n", i, interval);
         total_time_gpu += interval;
+
+        // Record data
+        csventry entry = { i + 1, N, "fw", interval };
+        writeCSVEntry(writer, &entry);
     }
     printf("GPU tests took %.7f seconds on average\n", total_time_gpu/NUMTESTS);
 }
@@ -242,7 +248,7 @@ void tfw(
     }
 }
 
-void test_tiled_floyd_warshall() {
+void test_tiled_floyd_warshall(datawrite *writer) {
     double total_time_gpu_tiled = 0;
     for (int i = 0; i < NUMTESTS; i++) {
         // Clear device mem and cache
@@ -280,6 +286,10 @@ void test_tiled_floyd_warshall() {
 
         printf("GPU: Test %d took %.7f seconds\n", i, interval);
         total_time_gpu_tiled += interval;
+
+        // Record data
+        csventry entry = { i + 1, N, "tfw", interval };
+        writeCSVEntry(writer, &entry);
     }
     printf("GPU Tiled tests took %.7f seconds on average\n", total_time_gpu_tiled/NUMTESTS);
 }
@@ -377,7 +387,7 @@ void bfw(
     } 
 }
 
-void test_blocked_floyd_warshall() {
+void test_blocked_floyd_warshall(datawrite *writer) {
 
     double total_time_gpu = 0;
 
@@ -412,6 +422,10 @@ void test_blocked_floyd_warshall() {
         }
 
         printf("Blocked: Test %d took %.7f seconds\n", i, interval);
+
+        // Record data
+        csventry entry = { i + 1, N, "bfw", interval };
+        writeCSVEntry(writer, &entry);
     }
     printf("Blocked Floyd Warshall tests took %.7f seconds on average\n", total_time_gpu/NUMTESTS);
 
@@ -422,8 +436,13 @@ int main() {
     // Set randomizer seed
     rand_seed();
     
-    test_floyd_warshall_gpu();
-    test_tiled_floyd_warshall();
-    test_blocked_floyd_warshall();
+    datawrite *writer = (datawrite *) malloc(sizeof(writer));
+    writer->path = "record.csv";
+    openCSV(writer);
+    writeCSVHeader(writer);
+
+    test_floyd_warshall_gpu(writer);
+    test_tiled_floyd_warshall(writer);
+    test_blocked_floyd_warshall(writer);
     return 0;
 }
