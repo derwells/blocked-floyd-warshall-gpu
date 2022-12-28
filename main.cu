@@ -5,19 +5,19 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define N 800
-#define BLOCKWIDTH 32
-#define PRINTLOGS 0
-#define NUMTESTS 10
+#define N 10 // [TODO] Turn into flag
+#define BLOCKWIDTH 32 // [TODO] Turn into flag
+#define NUMTESTS 10 // [TODO] Turn into flag
+#define DO_CHECKS true
 
-void generate_square_matrix(float *M, int size) {
-    int max = 9;
-    srand(time(NULL));
-    for (int i = 0; i < size; i++) {
-        for (int j = 0; j < size; j++) {
-            M[i*size + j] = rand() % max + 1.0;
-        }
-    }
+
+void rand_seed() {
+    // Set randomizer seed
+    int stime;
+    long ltime;
+    ltime = time(NULL);
+    stime = (unsigned) ltime/2;
+    srand(stime);
 }
 
 __device__ void device_print_square_matrix (float *M, int size) {
@@ -29,13 +29,22 @@ __device__ void device_print_square_matrix (float *M, int size) {
     }
 }
 
-void print_square_matrix(float *M, int size) {
-    if (!PRINTLOGS) return;
+void print_square_matrix(float *M, int size, bool enabled) {
+    if (!enabled) return;
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
             printf("%.2f ", M[i*size + j]);
         }
         printf("\n");
+    }
+}
+
+void generate_square_matrix(float *M, int size) {
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+            // Random float from 0.0 -> 10.0
+            M[i*size + j] = ((float)rand()/(float)(RAND_MAX/10.0));
+        }
     }
 }
 
@@ -56,44 +65,64 @@ void floyd_warshall_cpu(float *A, int size) {
 }
 
 void test_floyd_warshall_cpu() {
-    float total_time_cpu = 0;
+    double total_time_cpu = 0;
     for (int i = 0; i < NUMTESTS; i++) {
+        // Clear device mem and cache
+        cudaDeviceReset();
+
+        // Generate random square matrix
         float A[N*N];
         generate_square_matrix(A, N);
+
+
+        // Run and time FW CPU
         struct timeval start, end;
         gettimeofday(&start, NULL);
         floyd_warshall_cpu(A, N);
         gettimeofday(&end, NULL);
         float interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
+
         printf("CPU: Test %d took %.7f seconds\n", i, interval);
-        sleep(1.1);
-        if(i == 0) continue;
+
+        // For avg. calculation
         total_time_cpu += interval;
     }
     printf("CPU tests took %.7f seconds on average\n", total_time_cpu/NUMTESTS);
 }
 
-void check(float *G, float *final_G, int n)  {
-    int correct = 1;
-    float tol = 1e-6;
+bool check(float *G, float *final_G, int n) {
+    bool correct = false;
+    
+    double tol = 1e-6;
+    double delta, err;  
+
+    // Get correct version
     floyd_warshall_cpu(G, N);
+
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
-            if ((G[i*n+j] - final_G[i*n+j])*(G[i*n+j] - final_G[i*n+j]) > tol) {
-                correct = 0;
+            // Get squared err
+            delta = G[i*n+j] - final_G[i*n+j];
+            err = exp(delta);
+
+            if (err > tol) {
+                correct = false;
                 break;
             }
         }
-        if (!correct) break;
+
+        if (!correct)
+            break;
     }
-    if (correct) printf("(CORRECT)\n");
-    else printf("(INCORRECT)\n");
-    
+
+    return correct;
 }
 
 // Basic Floyd Warshall Algorithm running on the GPU instead of CPU. Uses global memory in the GPU.
 
 __global__ void update_cells(float *d_in, float *d_out, int n, int k) {
+    // [TODO] Explanation
+
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     if ((row < n) && (col < n)) {
@@ -104,17 +133,27 @@ __global__ void update_cells(float *d_in, float *d_out, int n, int k) {
 }
 
 void test_floyd_warshall_gpu() {
-    float total_time_gpu = 0;
+
+    double total_time_gpu = 0;
+
     for (int i = 0; i < NUMTESTS; i++) {
+        // Clear device mem and cache
+        cudaDeviceReset();
+
+        // Generate random graph
         float A[N * N];
         generate_square_matrix(A, N);
-        struct timeval start, end;
 
+        // Init device memory
+        // d_A -> input
+        // d_B -> output
         float *d_A, *d_B;
         cudaMalloc((void **) &d_A, N*N*sizeof(float));
         cudaMemcpy(d_A, A, N*N*sizeof(float), cudaMemcpyHostToDevice);
         cudaMalloc((void **) &d_B, N*N*sizeof(float));
 
+        // Start test proper
+        struct timeval start, end;
         gettimeofday(&start, NULL);
 
         for (int k = 0; k < N; k++) {        
@@ -125,14 +164,18 @@ void test_floyd_warshall_gpu() {
             cudaMemcpy(d_A, d_B, N*N*sizeof(float), cudaMemcpyDeviceToDevice);
         }
 
+        // Get running time
         gettimeofday(&end, NULL);
-        float final_A[N*N];
-        cudaMemcpy(final_A, d_A, N*N*sizeof(float), cudaMemcpyDeviceToHost);
-        check(A, final_A, N);
-        cudaFree(d_A); cudaFree(d_B);
+        double interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
+    
+        // Check output
+        if (DO_CHECKS) {
+            float final_A[N*N];
+            cudaMemcpy(final_A, d_A, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+            check(A, final_A, N);
+            cudaFree(d_A); cudaFree(d_B);
+        }
 
-        float interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
-        sleep(1.1);
         printf("GPU: Test %d took %.7f seconds\n", i, interval);
         total_time_gpu += interval;
     }
@@ -142,6 +185,8 @@ void test_floyd_warshall_gpu() {
 // Basic Floyd Warshall Algorithm that runs on the GPU employs tiling and shared memory
 
 __global__ void update_cells_tiled(float *d_in, float *d_out, int n, int k) {
+    // [TODO] Explanation
+
     __shared__ float shared_row[BLOCKWIDTH];
     __shared__ float shared_col[BLOCKWIDTH];
     __syncthreads();
@@ -168,17 +213,25 @@ __global__ void update_cells_tiled(float *d_in, float *d_out, int n, int k) {
 }
 
 void test_tiled_floyd_warshall() {
-    float total_time = 0;
+    double total_time_gpu_tiled = 0;
     for (int i = 0; i < NUMTESTS; i++) {
+        // Clear device mem and cache
+        cudaDeviceReset();
+
+        // Generate random graph
         float A[N * N];
         generate_square_matrix(A, N);
-        struct timeval start, end;
 
+        // Init device memory
+        // d_A -> input
+        // d_B -> output
         float *d_A, *d_B;
         cudaMalloc((void **) &d_A, N*N*sizeof(float));
         cudaMemcpy(d_A, A, N*N*sizeof(float), cudaMemcpyHostToDevice);
         cudaMalloc((void **) &d_B, N*N*sizeof(float));
 
+        // Start test proper
+        struct timeval start, end;
         gettimeofday(&start, NULL);
 
         for (int k = 0; k < N; k++) {        
@@ -189,18 +242,22 @@ void test_tiled_floyd_warshall() {
             cudaMemcpy(d_A, d_B, N*N*sizeof(float), cudaMemcpyDeviceToDevice);
         }
 
+        // Get running time
         gettimeofday(&end, NULL);
-        float final_A[N*N];
-        cudaMemcpy(final_A, d_A, N*N*sizeof(float), cudaMemcpyDeviceToHost);
-        check(A, final_A, N);
-        cudaFree(d_A); cudaFree(d_B);
+        double interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
+    
+        // Check output
+        if (DO_CHECKS) {
+            float final_A[N*N];
+            cudaMemcpy(final_A, d_A, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+            check(A, final_A, N);
+            cudaFree(d_A); cudaFree(d_B);
+        }
 
-        float interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
-        sleep(1.1);
-        printf("GPU (tiled): Test %d took %.7f seconds\n", i, interval);
-        total_time += interval;
+        printf("GPU: Test %d took %.7f seconds\n", i, interval);
+        total_time_gpu_tiled += interval;
     }
-    printf("GPU Tiled tests took %.7f seconds on average\n", total_time/NUMTESTS);
+    printf("GPU Tiled tests took %.7f seconds on average\n", total_time_gpu_tiled/NUMTESTS);
 }
 
 // Blocked Floyd Warshall Algorithm
@@ -282,20 +339,29 @@ __global__ void blocked_floyd_warshall_phase_tree(int k, float *G) {
 }
 
 void test_blocked_floyd_warshall() {
-    float total_time = 0;
+
+    double total_time_gpu = 0;
+
     for (int i = 0; i < NUMTESTS; i++) {
+        // Clear device mem and cache
+        cudaDeviceReset();
+
+        // Generate random graph
         float G[N*N];
         generate_square_matrix(G, N);
 
+        // Copy graph matrix to device
         float *d_G;
         cudaMalloc((void **) &d_G, N*N*sizeof(float));
         cudaMemcpy(d_G, G, N*N*sizeof(float), cudaMemcpyHostToDevice);
+
         struct timeval start, end;
         gettimeofday(&start, NULL);
 
         int num_blocks = (N+BLOCKWIDTH-1) / (BLOCKWIDTH);
         dim3 dimGrid(num_blocks, num_blocks, 1);
         dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
+
         for (int k = 0; k < num_blocks; k++) {
             blocked_floyd_warshall_phase_one<<<1, dimBlock>>>(k, d_G);
             blocked_floyd_warshall_phase_two<<<num_blocks, dimBlock>>>(k, d_G);
@@ -304,20 +370,27 @@ void test_blocked_floyd_warshall() {
 
         gettimeofday(&end, NULL);
         float interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
-        sleep(1.1);
+
+        total_time_gpu += interval;
+
+        if (DO_CHECKS) {
+            float final_G[N*N];
+            cudaMemcpy(final_G, d_G, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+            check(G, final_G, N);
+            cudaFree(d_G);
+        }
+
         printf("Blocked: Test %d took %.7f seconds\n", i, interval);
-        total_time += interval;
-        float final_G[N*N];
-        cudaMemcpy(final_G, d_G, N*N*sizeof(float), cudaMemcpyDeviceToHost);
-        check(G, final_G, N);
-        cudaFree(d_G);
     }
-    printf("Blocked Floyd Warshall tests took %.7f seconds on average\n", total_time/NUMTESTS);
+    printf("Blocked Floyd Warshall tests took %.7f seconds on average\n", total_time_gpu/NUMTESTS);
 
 }
 
 
 int main() {
+    // Set randomizer seed
+    rand_seed();
+    
     test_floyd_warshall_gpu();
     test_tiled_floyd_warshall();
     test_blocked_floyd_warshall();
