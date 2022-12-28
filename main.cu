@@ -78,7 +78,9 @@ void test_floyd_warshall_cpu() {
         // Run and time FW CPU
         struct timeval start, end;
         gettimeofday(&start, NULL);
+
         floyd_warshall_cpu(A, N);
+
         gettimeofday(&end, NULL);
         float interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
 
@@ -129,6 +131,20 @@ __global__ void update_cells(float *d_in, float *d_out, int n, int k) {
         float new_path = d_in[row * n + k] + d_in[k * n + col];
         float old_path = d_in[row * n + col];
         d_out[row * n + col] = min(new_path, old_path);
+    }
+}
+
+void fw(
+    float *d_A,
+    float *d_B,
+    int n
+) {
+    for (int k = 0; k < N; k++) {        
+        dim3 dimGrid(ceil(N/BLOCKWIDTH), ceil(N/BLOCKWIDTH), 1);
+        dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
+        update_cells<<<dimGrid, dimBlock>>>(d_A, d_B, n, k);
+        cudaDeviceSynchronize();
+        cudaMemcpy(d_A, d_B, N*N*sizeof(float), cudaMemcpyDeviceToDevice);
     }
 }
 
@@ -212,6 +228,20 @@ __global__ void update_cells_tiled(float *d_in, float *d_out, int n, int k) {
     }
 }
 
+void tfw(
+    float *d_A,
+    float *d_B,
+    int n
+) {
+    for (int k = 0; k < N; k++) {        
+        dim3 dimGrid(ceil(N/BLOCKWIDTH), ceil(N/BLOCKWIDTH), 1);
+        dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
+        update_cells_tiled<<<dimGrid, dimBlock>>>(d_A, d_B, n, k);
+        cudaDeviceSynchronize();
+        cudaMemcpy(d_A, d_B, N*N*sizeof(float), cudaMemcpyDeviceToDevice);
+    }
+}
+
 void test_tiled_floyd_warshall() {
     double total_time_gpu_tiled = 0;
     for (int i = 0; i < NUMTESTS; i++) {
@@ -234,13 +264,7 @@ void test_tiled_floyd_warshall() {
         struct timeval start, end;
         gettimeofday(&start, NULL);
 
-        for (int k = 0; k < N; k++) {        
-            dim3 dimGrid(ceil(N/BLOCKWIDTH), ceil(N/BLOCKWIDTH), 1);
-            dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
-            update_cells_tiled<<<dimGrid, dimBlock>>>(d_A, d_B, N, k);
-            cudaDeviceSynchronize();
-            cudaMemcpy(d_A, d_B, N*N*sizeof(float), cudaMemcpyDeviceToDevice);
-        }
+        tfw(d_A, d_B, N);
 
         // Get running time
         gettimeofday(&end, NULL);
@@ -338,6 +362,21 @@ __global__ void blocked_floyd_warshall_phase_tree(int k, float *G) {
     G[(by * BLOCKWIDTH + ty) * N + (bx * BLOCKWIDTH + tx)] = C[ty * BLOCKWIDTH + tx];
 }
 
+void bfw(
+    float *d_G,
+    int n
+) {
+    int num_blocks = (N+BLOCKWIDTH-1) / (BLOCKWIDTH);
+    dim3 dimGrid(num_blocks, num_blocks, 1);
+    dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
+
+    for (int k = 0; k < num_blocks; k++) {
+        blocked_floyd_warshall_phase_one<<<1, dimBlock>>>(k, d_G);
+        blocked_floyd_warshall_phase_two<<<num_blocks, dimBlock>>>(k, d_G);
+        blocked_floyd_warshall_phase_tree<<<dimGrid, dimBlock>>>(k, d_G);
+    } 
+}
+
 void test_blocked_floyd_warshall() {
 
     double total_time_gpu = 0;
@@ -358,15 +397,7 @@ void test_blocked_floyd_warshall() {
         struct timeval start, end;
         gettimeofday(&start, NULL);
 
-        int num_blocks = (N+BLOCKWIDTH-1) / (BLOCKWIDTH);
-        dim3 dimGrid(num_blocks, num_blocks, 1);
-        dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
-
-        for (int k = 0; k < num_blocks; k++) {
-            blocked_floyd_warshall_phase_one<<<1, dimBlock>>>(k, d_G);
-            blocked_floyd_warshall_phase_two<<<num_blocks, dimBlock>>>(k, d_G);
-            blocked_floyd_warshall_phase_tree<<<dimGrid, dimBlock>>>(k, d_G);
-        }
+        bfw(d_G, N);
 
         gettimeofday(&end, NULL);
         float interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
