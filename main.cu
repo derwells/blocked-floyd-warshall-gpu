@@ -125,7 +125,7 @@ bool check(float *G, float *final_G, int n) {
 // Basic Floyd Warshall Algorithm running on the GPU instead of CPU. Uses global memory in the GPU.
 
 __global__ void update_cells(float *d_in, float *d_out, int n, int k) {
-    // [TODO] Explanation
+    // Algorithm in the innermost loop of the FW algorithm. Updates cell values based on the current iteration.
 
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -207,7 +207,7 @@ void test_floyd_warshall_gpu(datawrite *writer) {
 // Basic Floyd Warshall Algorithm that runs on the GPU employs tiling and shared memory
 
 __global__ void update_cells_tiled(float *d_in, float *d_out, int n, int k) {
-    // [TODO] Explanation
+    // Same as update_cells(), but makes use of shared memory and loads all the relevant data first.
 
     __shared__ float shared_row[BLOCKWIDTH];
     __shared__ float shared_col[BLOCKWIDTH];
