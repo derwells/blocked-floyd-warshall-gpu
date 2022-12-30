@@ -12,7 +12,7 @@
 #define NUMTESTS 10
 #define DO_CHECKS false
 
-const int SIZES_TO_TEST[] = { 100 };
+const int SIZES_TO_TEST[] = { 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000 };
 const size_t N_SIZES_TO_TEST = sizeof(SIZES_TO_TEST) / sizeof(int);
 
 void rand_seed() {
