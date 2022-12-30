@@ -251,30 +251,26 @@ __global__ void blocked_floyd_warshall_phase_two (int k, int *G, int n) {
     __shared__ int C[BLOCKWIDTH * BLOCKWIDTH];
     __syncthreads();
 
+
+    A[ty * BLOCKWIDTH + tx] = G[(k * BLOCKWIDTH + ty) * n + (bx * BLOCKWIDTH + tx)];
+    B[ty * BLOCKWIDTH + tx] = G[(bx * BLOCKWIDTH + ty) * n + (k * BLOCKWIDTH + tx)];
+    C[ty * BLOCKWIDTH + tx] = G[(k * BLOCKWIDTH + ty) * n + (k * BLOCKWIDTH + tx)];
+    __syncthreads();
     // Calculate kth row
-
-    C[ty * BLOCKWIDTH + tx] = G[(k * BLOCKWIDTH + ty) * n + (bx * BLOCKWIDTH + tx)];
-    A[ty * BLOCKWIDTH + tx] = G[(k * BLOCKWIDTH + ty) * n + (k * BLOCKWIDTH + tx)];
-    __syncthreads();
-    block_kernel(C, A, C, ty, tx);
-    __syncthreads();
-    G[(k * BLOCKWIDTH + ty) * n + (bx * BLOCKWIDTH + tx)] = C[ty * BLOCKWIDTH + tx];
-
+    block_kernel(A, C, A, ty, tx);
     // Calculate kth column
+    block_kernel(B, B, C, ty, tx);
+    __syncthreads();
+    G[(k * BLOCKWIDTH + ty) * n + (bx * BLOCKWIDTH + tx)] = A[ty * BLOCKWIDTH + tx];
+    G[(bx * BLOCKWIDTH + ty) *n + (k * BLOCKWIDTH + tx)] = B[ty * BLOCKWIDTH + tx];
 
-    C[ty * BLOCKWIDTH + tx] = G[(bx * BLOCKWIDTH + ty) * n + (k * BLOCKWIDTH + tx)];
-    B[ty * BLOCKWIDTH + tx] = G[(k * BLOCKWIDTH + ty) * n + (k * BLOCKWIDTH + tx)];
-    __syncthreads();
-    block_kernel(C, C, B, ty, tx);
-    __syncthreads();
-    G[(bx * BLOCKWIDTH + ty) *n + (k * BLOCKWIDTH + tx)] = C[ty * BLOCKWIDTH + tx];
 }
 
 __global__ void blocked_floyd_warshall_phase_tree(int k, int *G, int n) {
     int bx = blockIdx.x; int by = blockIdx.y;
     int tx = threadIdx.x; int ty = threadIdx.y;
 
-    if (bx == k && by == k) return;
+    if (bx == k || by == k) return;
 
     __shared__ int A[BLOCKWIDTH * BLOCKWIDTH];  // block in col k, row by
     __shared__ int B[BLOCKWIDTH * BLOCKWIDTH];  // block in col bx, row k
