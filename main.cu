@@ -22,36 +22,36 @@ void rand_seed() {
     srand(stime);
 }
 
-__device__ void device_print_square_matrix (float *M, int size) {
+__device__ void device_print_square_matrix (int *M, int size) {
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
-            printf("%.2f ", M[i*size + j]);
+            printf("%d ", M[i*size + j]);
         }
         printf("\n");
     }
 }
 
-void print_square_matrix(float *M, int size, bool enabled) {
+void print_square_matrix(int *M, int size, bool enabled) {
     if (!enabled) return;
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
-            printf("%.2f ", M[i*size + j]);
+            printf("%d ", M[i*size + j]);
         }
         printf("\n");
     }
 }
 
-void generate_square_matrix(float *M, int size) {
+void generate_square_matrix(int *M, int size) {
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
-            // Random float from 0.0 -> 10.0
-            M[i*size + j] = ((float)rand()/(float)(RAND_MAX/10.0));
+            // Random int from 0.0 -> 10.0
+            M[i*size + j] = ((int)rand()/(int)(RAND_MAX/10));
         }
     }
 }
 
-void floyd_warshall_cpu(float *A, int size) {
-	float B[N*N];
+void floyd_warshall_cpu(int *A, int size) {
+	int B[N*N];
 	for (int k = 0; k < size; k++) {
 		for (int i = 0; i < size; i++) {
 			for (int j = 0;  j < size; j++) {
@@ -73,7 +73,7 @@ void test_floyd_warshall_cpu(datawrite *writer) {
         cudaDeviceReset();
 
         // Generate random square matrix
-        float A[N*N];
+        int A[N*N];
         generate_square_matrix(A, N);
 
 
@@ -84,7 +84,7 @@ void test_floyd_warshall_cpu(datawrite *writer) {
         floyd_warshall_cpu(A, N);
 
         gettimeofday(&end, NULL);
-        float interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
+        double interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
 
         printf("CPU: Test %d took %.7f seconds\n", i, interval);
 
@@ -94,7 +94,7 @@ void test_floyd_warshall_cpu(datawrite *writer) {
     printf("CPU tests took %.7f seconds on average\n", total_time_cpu/NUMTESTS);
 }
 
-bool check(float *G, float *final_G, int n) {    
+bool check(int *G, int *final_G, int n) {    
     double tol = 1e-6;
     double delta, err;  
 
@@ -105,9 +105,9 @@ bool check(float *G, float *final_G, int n) {
         for (int j = 0; j < n; j++) {
             // Get squared err
             delta = G[i*n+j] - final_G[i*n+j];
-            err = pow(delta, 2.0);
 
-            if (err > tol) {
+            if (delta != 0) {
+                printf("delta: %lf\n", delta);
                 return false;
             }
         }
@@ -118,21 +118,21 @@ bool check(float *G, float *final_G, int n) {
 
 // Basic Floyd Warshall Algorithm running on the GPU instead of CPU. Uses global memory in the GPU.
 
-__global__ void update_cells(float *d_in, float *d_out, int n, int k) {
+__global__ void update_cells(int *d_in, int *d_out, int n, int k) {
     // Algorithm in the innermost loop of the FW algorithm. Updates cell values based on the current iteration.
 
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     if ((row < n) && (col < n)) {
-        float new_path = d_in[row * n + k] + d_in[k * n + col];
-        float old_path = d_in[row * n + col];
+        int new_path = d_in[row * n + k] + d_in[k * n + col];
+        int old_path = d_in[row * n + col];
         d_out[row * n + col] = min(new_path, old_path);
     }
 }
 
 void fw(
-    float *d_A,
-    float *d_B,
+    int *d_A,
+    int *d_B,
     int n
 ) {
     for (int k = 0; k < N; k++) {        
@@ -140,7 +140,7 @@ void fw(
         dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
         update_cells<<<dimGrid, dimBlock>>>(d_A, d_B, n, k);
         cudaDeviceSynchronize();
-        cudaMemcpy(d_A, d_B, N*N*sizeof(float), cudaMemcpyDeviceToDevice);
+        cudaMemcpy(d_A, d_B, N*N*sizeof(int), cudaMemcpyDeviceToDevice);
     }
 }
 
@@ -153,16 +153,16 @@ void test_floyd_warshall_gpu(datawrite *writer) {
         cudaDeviceReset();
 
         // Generate random graph
-        float A[N * N];
+        int A[N * N];
         generate_square_matrix(A, N);
 
         // Init device memory
         // d_A -> input
         // d_B -> output
-        float *d_A, *d_B;
-        cudaMalloc((void **) &d_A, N*N*sizeof(float));
-        cudaMemcpy(d_A, A, N*N*sizeof(float), cudaMemcpyHostToDevice);
-        cudaMalloc((void **) &d_B, N*N*sizeof(float));
+        int *d_A, *d_B;
+        cudaMalloc((void **) &d_A, N*N*sizeof(int));
+        cudaMemcpy(d_A, A, N*N*sizeof(int), cudaMemcpyHostToDevice);
+        cudaMalloc((void **) &d_B, N*N*sizeof(int));
 
         // Start test proper
         struct timeval start, end;
@@ -173,7 +173,7 @@ void test_floyd_warshall_gpu(datawrite *writer) {
 			dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
 			update_cells<<<dimGrid, dimBlock>>>(d_A, d_B, N, k);
 			cudaDeviceSynchronize();
-            cudaMemcpy(d_A, d_B, N*N*sizeof(float), cudaMemcpyDeviceToDevice);
+            cudaMemcpy(d_A, d_B, N*N*sizeof(int), cudaMemcpyDeviceToDevice);
         }
 
         // Get running time
@@ -182,8 +182,8 @@ void test_floyd_warshall_gpu(datawrite *writer) {
     
         // Check output
         if (DO_CHECKS) {
-            float final_A[N*N];
-            cudaMemcpy(final_A, d_A, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+            int final_A[N*N];
+            cudaMemcpy(final_A, d_A, N*N*sizeof(int), cudaMemcpyDeviceToHost);
             if (check(A, final_A, N))
                 printf("CORRECT!\n");
             cudaFree(d_A); cudaFree(d_B);
@@ -201,11 +201,11 @@ void test_floyd_warshall_gpu(datawrite *writer) {
 
 // Basic Floyd Warshall Algorithm that runs on the GPU employs tiling and shared memory
 
-__global__ void update_cells_tiled(float *d_in, float *d_out, int n, int k) {
+__global__ void update_cells_tiled(int *d_in, int *d_out, int n, int k) {
     // Same as update_cells(), but makes use of shared memory and loads all the relevant data first.
 
-    __shared__ float shared_row[BLOCKWIDTH];
-    __shared__ float shared_col[BLOCKWIDTH];
+    __shared__ int shared_row[BLOCKWIDTH];
+    __shared__ int shared_col[BLOCKWIDTH];
     __syncthreads();
 
     int bx = blockIdx.x; int by = blockIdx.y;
@@ -223,15 +223,15 @@ __global__ void update_cells_tiled(float *d_in, float *d_out, int n, int k) {
     __syncthreads();
 
     if ((row < n) && (col < n)) {
-        float new_path = shared_row[tx] + shared_col[ty];
-        float old_path = d_in[row * n + col];
+        int new_path = shared_row[tx] + shared_col[ty];
+        int old_path = d_in[row * n + col];
         d_out[row * n + col] = min(new_path, old_path);
     }
 }
 
 void tfw(
-    float *d_A,
-    float *d_B,
+    int *d_A,
+    int *d_B,
     int n
 ) {
     for (int k = 0; k < N; k++) {        
@@ -239,7 +239,7 @@ void tfw(
         dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
         update_cells_tiled<<<dimGrid, dimBlock>>>(d_A, d_B, n, k);
         cudaDeviceSynchronize();
-        cudaMemcpy(d_A, d_B, N*N*sizeof(float), cudaMemcpyDeviceToDevice);
+        cudaMemcpy(d_A, d_B, N*N*sizeof(int), cudaMemcpyDeviceToDevice);
     }
 }
 
@@ -250,16 +250,16 @@ void test_tiled_floyd_warshall(datawrite *writer) {
         cudaDeviceReset();
 
         // Generate random graph
-        float A[N * N];
+        int A[N * N];
         generate_square_matrix(A, N);
 
         // Init device memory
         // d_A -> input
         // d_B -> output
-        float *d_A, *d_B;
-        cudaMalloc((void **) &d_A, N*N*sizeof(float));
-        cudaMemcpy(d_A, A, N*N*sizeof(float), cudaMemcpyHostToDevice);
-        cudaMalloc((void **) &d_B, N*N*sizeof(float));
+        int *d_A, *d_B;
+        cudaMalloc((void **) &d_A, N*N*sizeof(int));
+        cudaMemcpy(d_A, A, N*N*sizeof(int), cudaMemcpyHostToDevice);
+        cudaMalloc((void **) &d_B, N*N*sizeof(int));
 
         // Start test proper
         struct timeval start, end;
@@ -273,8 +273,8 @@ void test_tiled_floyd_warshall(datawrite *writer) {
     
         // Check output
         if (DO_CHECKS) {
-            float final_A[N*N];
-            cudaMemcpy(final_A, d_A, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+            int final_A[N*N];
+            cudaMemcpy(final_A, d_A, N*N*sizeof(int), cudaMemcpyDeviceToHost);
             if (check(A, final_A, N))
                 printf("CORRECT!\n");
             cudaFree(d_A); cudaFree(d_B);
@@ -293,18 +293,18 @@ void test_tiled_floyd_warshall(datawrite *writer) {
 // Blocked Floyd Warshall Algorithm
 
 
-__device__ void block_kernel(float *C, float *A, float *B, int row, int col) {
+__device__ void block_kernel(int *C, int *A, int *B, int row, int col) {
     for (int k = 0; k < BLOCKWIDTH; k++) {
         C[row * BLOCKWIDTH + col] = C[row * BLOCKWIDTH + col] > A[row * BLOCKWIDTH + k] + B[k * BLOCKWIDTH + col] ?
         A[row * BLOCKWIDTH + k] + B[k * BLOCKWIDTH + col] : C[row * BLOCKWIDTH + col];
     }
 }
 
-__global__ void blocked_floyd_warshall_phase_one (int k, float *G) {
+__global__ void blocked_floyd_warshall_phase_one (int k, int *G) {
     int bx = blockIdx.x; int by = blockIdx.y;
     int tx = threadIdx.x; int ty = threadIdx.y;
 
-    __shared__ float C[BLOCKWIDTH * BLOCKWIDTH];
+    __shared__ int C[BLOCKWIDTH * BLOCKWIDTH];
     __syncthreads();
 
     C[ty * BLOCKWIDTH + tx] = G[(k * BLOCKWIDTH + ty) * N + (k * BLOCKWIDTH + tx)];
@@ -316,15 +316,15 @@ __global__ void blocked_floyd_warshall_phase_one (int k, float *G) {
     G[(k * BLOCKWIDTH + ty) * N + (k * BLOCKWIDTH + tx)] = C[ty * BLOCKWIDTH + tx];
 }
 
-__global__ void blocked_floyd_warshall_phase_two (int k, float *G) {
+__global__ void blocked_floyd_warshall_phase_two (int k, int *G) {
     // Grid is one dimensional only
     int bx = blockIdx.x;
     int tx = threadIdx.x; int ty = threadIdx.y;
     if (bx == k) return;
 
-    __shared__ float A[BLOCKWIDTH * BLOCKWIDTH];
-    __shared__ float B[BLOCKWIDTH * BLOCKWIDTH];
-    __shared__ float C[BLOCKWIDTH * BLOCKWIDTH];
+    __shared__ int A[BLOCKWIDTH * BLOCKWIDTH];
+    __shared__ int B[BLOCKWIDTH * BLOCKWIDTH];
+    __shared__ int C[BLOCKWIDTH * BLOCKWIDTH];
     __syncthreads();
 
     // Calculate kth row
@@ -346,15 +346,15 @@ __global__ void blocked_floyd_warshall_phase_two (int k, float *G) {
     G[(bx * BLOCKWIDTH + ty) * N + (k * BLOCKWIDTH + tx)] = C[ty * BLOCKWIDTH + tx];
 }
 
-__global__ void blocked_floyd_warshall_phase_tree(int k, float *G) {
+__global__ void blocked_floyd_warshall_phase_tree(int k, int *G) {
     int bx = blockIdx.x; int by = blockIdx.y;
     int tx = threadIdx.x; int ty = threadIdx.y;
 
     if (bx == k && by == k) return;
 
-    __shared__ float A[BLOCKWIDTH * BLOCKWIDTH];  // block in col k, row by
-    __shared__ float B[BLOCKWIDTH * BLOCKWIDTH];  // block in col bx, row k
-    __shared__ float C[BLOCKWIDTH * BLOCKWIDTH];  // block in col bx, row by
+    __shared__ int A[BLOCKWIDTH * BLOCKWIDTH];  // block in col k, row by
+    __shared__ int B[BLOCKWIDTH * BLOCKWIDTH];  // block in col bx, row k
+    __shared__ int C[BLOCKWIDTH * BLOCKWIDTH];  // block in col bx, row by
     __syncthreads();
 
     C[ty * BLOCKWIDTH + tx] = G[(by * BLOCKWIDTH + ty) * N + (bx * BLOCKWIDTH + tx)];
@@ -369,7 +369,7 @@ __global__ void blocked_floyd_warshall_phase_tree(int k, float *G) {
 }
 
 void bfw(
-    float *d_G,
+    int *d_G,
     int n
 ) {
     int num_blocks = (N+BLOCKWIDTH-1) / (BLOCKWIDTH);
@@ -392,13 +392,13 @@ void test_blocked_floyd_warshall(datawrite *writer) {
         cudaDeviceReset();
 
         // Generate random graph
-        float G[N*N];
+        int G[N*N];
         generate_square_matrix(G, N);
 
         // Copy graph matrix to device
-        float *d_G;
-        cudaMalloc((void **) &d_G, N*N*sizeof(float));
-        cudaMemcpy(d_G, G, N*N*sizeof(float), cudaMemcpyHostToDevice);
+        int *d_G;
+        cudaMalloc((void **) &d_G, N*N*sizeof(int));
+        cudaMemcpy(d_G, G, N*N*sizeof(int), cudaMemcpyHostToDevice);
 
         struct timeval start, end;
         gettimeofday(&start, NULL);
@@ -406,13 +406,13 @@ void test_blocked_floyd_warshall(datawrite *writer) {
         bfw(d_G, N);
 
         gettimeofday(&end, NULL);
-        float interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
+        double interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
 
         total_time_gpu += interval;
 
         if (DO_CHECKS) {
-            float final_G[N*N];
-            cudaMemcpy(final_G, d_G, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+            int final_G[N*N];
+            cudaMemcpy(final_G, d_G, N*N*sizeof(int), cudaMemcpyDeviceToHost);
             if (check(G, final_G, N))
                 printf("CORRECT!\n");
             cudaFree(d_G);
