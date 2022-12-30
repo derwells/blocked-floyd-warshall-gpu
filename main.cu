@@ -12,7 +12,7 @@
 #define NUMTESTS 10
 #define DO_CHECKS false
 
-const int SIZES_TO_TEST[] = { 2500, 5000, 7500, 10000 };
+const int SIZES_TO_TEST[] = { 100 };
 const size_t N_SIZES_TO_TEST = sizeof(SIZES_TO_TEST) / sizeof(int);
 
 void rand_seed() {
@@ -375,8 +375,8 @@ int main() {
     openCSV(writer);
     writeCSVHeader(writer);
 
-    // test_floyd_warshall_cpu(writer);
-    // test_floyd_warshall_gpu(writer);
+    test_floyd_warshall_cpu(writer);
+    test_floyd_warshall_gpu(writer);
     test_blocked_floyd_warshall(writer);
     return 0;
 }
