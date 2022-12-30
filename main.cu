@@ -90,6 +90,10 @@ void test_floyd_warshall_cpu(datawrite *writer) {
 
         // For avg. calculation
         total_time_cpu += interval;
+
+        // Record data
+        csventry entry = { i + 1, N, "cpu", interval };
+        writeCSVEntry(writer, &entry);
     }
     printf("CPU tests took %.7f seconds on average\n", total_time_cpu/NUMTESTS);
 }
@@ -197,97 +201,6 @@ void test_floyd_warshall_gpu(datawrite *writer) {
         writeCSVEntry(writer, &entry);
     }
     printf("GPU tests took %.7f seconds on average\n", total_time_gpu/NUMTESTS);
-}
-
-// Basic Floyd Warshall Algorithm that runs on the GPU employs tiling and shared memory
-
-__global__ void update_cells_tiled(int *d_in, int *d_out, int n, int k) {
-    // Same as update_cells(), but makes use of shared memory and loads all the relevant data first.
-
-    __shared__ int shared_row[BLOCKWIDTH];
-    __shared__ int shared_col[BLOCKWIDTH];
-    __syncthreads();
-
-    int bx = blockIdx.x; int by = blockIdx.y;
-    int tx = threadIdx.x; int ty = threadIdx.y;
-
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;   
-
-    if (tx == 0) {
-        shared_col[ty] = d_in[row * n + k];      
-    } 
-    if (ty == 0) {
-        shared_row[tx] = d_in[k * n + col];      
-    }
-    __syncthreads();
-
-    if ((row < n) && (col < n)) {
-        int new_path = shared_row[tx] + shared_col[ty];
-        int old_path = d_in[row * n + col];
-        d_out[row * n + col] = min(new_path, old_path);
-    }
-}
-
-void tfw(
-    int *d_A,
-    int *d_B,
-    int n
-) {
-    for (int k = 0; k < N; k++) {        
-        dim3 dimGrid(ceil(N/BLOCKWIDTH), ceil(N/BLOCKWIDTH), 1);
-        dim3 dimBlock(BLOCKWIDTH, BLOCKWIDTH, 1);
-        update_cells_tiled<<<dimGrid, dimBlock>>>(d_A, d_B, n, k);
-        cudaDeviceSynchronize();
-        cudaMemcpy(d_A, d_B, N*N*sizeof(int), cudaMemcpyDeviceToDevice);
-    }
-}
-
-void test_tiled_floyd_warshall(datawrite *writer) {
-    double total_time_gpu_tiled = 0;
-    for (int i = 0; i < NUMTESTS; i++) {
-        // Clear device mem and cache
-        cudaDeviceReset();
-
-        // Generate random graph
-        int A[N * N];
-        generate_square_matrix(A, N);
-
-        // Init device memory
-        // d_A -> input
-        // d_B -> output
-        int *d_A, *d_B;
-        cudaMalloc((void **) &d_A, N*N*sizeof(int));
-        cudaMemcpy(d_A, A, N*N*sizeof(int), cudaMemcpyHostToDevice);
-        cudaMalloc((void **) &d_B, N*N*sizeof(int));
-
-        // Start test proper
-        struct timeval start, end;
-        gettimeofday(&start, NULL);
-
-        tfw(d_A, d_B, N);
-
-        // Get running time
-        gettimeofday(&end, NULL);
-        double interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
-    
-        // Check output
-        if (DO_CHECKS) {
-            int final_A[N*N];
-            cudaMemcpy(final_A, d_A, N*N*sizeof(int), cudaMemcpyDeviceToHost);
-            if (check(A, final_A, N))
-                printf("CORRECT!\n");
-            cudaFree(d_A); cudaFree(d_B);
-        }
-
-        printf("GPU: Test %d took %.7f seconds\n", i, interval);
-        total_time_gpu_tiled += interval;
-
-        // Record data
-        csventry entry = { i + 1, N, "tfw", interval };
-        writeCSVEntry(writer, &entry);
-    }
-    printf("GPU Tiled tests took %.7f seconds on average\n", total_time_gpu_tiled/NUMTESTS);
 }
 
 // Blocked Floyd Warshall Algorithm
@@ -438,8 +351,8 @@ int main() {
     openCSV(writer);
     writeCSVHeader(writer);
 
+    test_floyd_warshall_cpu(writer);
     test_floyd_warshall_gpu(writer);
-    test_tiled_floyd_warshall(writer);
     test_blocked_floyd_warshall(writer);
     return 0;
 }
