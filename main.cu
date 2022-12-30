@@ -12,7 +12,7 @@
 #define NUMTESTS 10
 #define DO_CHECKS false
 
-const int SIZES_TO_TEST[] = { 100, 250, 500, 750, 1000 };
+const int SIZES_TO_TEST[] = { 2500, 5000, 7500, 10000 };
 const size_t N_SIZES_TO_TEST = sizeof(SIZES_TO_TEST) / sizeof(int);
 
 void rand_seed() {
@@ -53,7 +53,7 @@ void generate_square_matrix(int *M, int size) {
 }
 
 void floyd_warshall_cpu(int *A, int size) {
-	int B[size*size];
+	int *B = (int *) malloc(size * size * sizeof(int));
 	for (int k = 0; k < size; k++) {
 		for (int i = 0; i < size; i++) {
 			for (int j = 0;  j < size; j++) {
@@ -66,6 +66,7 @@ void floyd_warshall_cpu(int *A, int size) {
 			}
 		}
 	}
+   free(B); 
 }
 
 void test_floyd_warshall_cpu(datawrite *writer) {
@@ -73,15 +74,18 @@ void test_floyd_warshall_cpu(datawrite *writer) {
 
     for (int idx_n = 0; idx_n < N_SIZES_TO_TEST; idx_n++) {
         int n = SIZES_TO_TEST[idx_n];
+
+        if (n > 1000)
+            break;
+
         printf("DOING SIZE: %d\n", n);
         for (int i = 0; i < NUMTESTS; i++) {
             // Clear device mem and cache
             cudaDeviceReset();
 
             // Generate random square matrix
-            int A[n*n];
+            int *A = (int *) malloc(n * n * sizeof(int));
             generate_square_matrix(A, n);
-
 
             // Run and time FW CPU
             struct timeval start, end;
@@ -91,6 +95,7 @@ void test_floyd_warshall_cpu(datawrite *writer) {
 
             gettimeofday(&end, NULL);
             double interval = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec) * 1.0)/1000000;
+            free(A);
 
             printf("CPU: Test %d took %.7f seconds\n", i, interval);
 
@@ -167,7 +172,7 @@ void test_floyd_warshall_gpu(datawrite *writer) {
             cudaDeviceReset();
 
             // Generate random graph
-            int A[n * n];
+            int *A = (int *) malloc(n * n * sizeof(int));
             generate_square_matrix(A, n);
 
             // Init device memory
@@ -196,12 +201,15 @@ void test_floyd_warshall_gpu(datawrite *writer) {
         
             // Check output
             if (DO_CHECKS) {
-                int final_A[n*n];
+                int *final_A = (int *) malloc(n * n * sizeof(int));
                 cudaMemcpy(final_A, d_A, n*n*sizeof(int), cudaMemcpyDeviceToHost);
                 if (check(A, final_A, n))
                     printf("CORRECT!\n");
                 cudaFree(d_A); cudaFree(d_B);
+                free(final_A);
             }
+
+            free(A);
 
             printf("GPU: Test %d took %.7f seconds\n", i, interval);
             total_time_gpu += interval;
@@ -319,7 +327,7 @@ void test_blocked_floyd_warshall(datawrite *writer) {
             cudaDeviceReset();
 
             // Generate random graph
-            int G[n*n];
+            int *G = (int *) malloc(n * n * sizeof(int));
             generate_square_matrix(G, n);
 
 
@@ -339,12 +347,15 @@ void test_blocked_floyd_warshall(datawrite *writer) {
             total_time_gpu += interval;
 
             if (DO_CHECKS) {
-                int final_G[n*n];
+                int *final_G = (int *) malloc(n * n * sizeof(int));
                 cudaMemcpy(final_G, d_G, n*n*sizeof(int), cudaMemcpyDeviceToHost);
                 if (check(G, final_G, n))
                     printf("CORRECT!\n");
                 cudaFree(d_G);
+                free(final_G);
             }
+
+            free(G);
 
             printf("Blocked: Test %d took %.7f seconds\n", i, interval);
 
@@ -368,8 +379,8 @@ int main() {
     openCSV(writer);
     writeCSVHeader(writer);
 
-    test_floyd_warshall_cpu(writer);
-    test_floyd_warshall_gpu(writer);
+    // test_floyd_warshall_cpu(writer);
+    // test_floyd_warshall_gpu(writer);
     test_blocked_floyd_warshall(writer);
     return 0;
 }
