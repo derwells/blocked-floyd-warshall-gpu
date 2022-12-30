@@ -8,10 +8,10 @@
 // Custom library
 #include "data.h"
 
-#define N 800
+#define N 100
 #define BLOCKWIDTH 32
 #define NUMTESTS 10
-#define DO_CHECKS false
+#define DO_CHECKS true
 
 void rand_seed() {
     // Set randomizer seed
@@ -94,9 +94,7 @@ void test_floyd_warshall_cpu(datawrite *writer) {
     printf("CPU tests took %.7f seconds on average\n", total_time_cpu/NUMTESTS);
 }
 
-bool check(float *G, float *final_G, int n) {
-    bool correct = false;
-    
+bool check(float *G, float *final_G, int n) {    
     double tol = 1e-6;
     double delta, err;  
 
@@ -107,19 +105,15 @@ bool check(float *G, float *final_G, int n) {
         for (int j = 0; j < n; j++) {
             // Get squared err
             delta = G[i*n+j] - final_G[i*n+j];
-            err = exp(delta);
+            err = pow(delta, 2.0);
 
             if (err > tol) {
-                correct = false;
-                break;
+                return false;
             }
         }
-
-        if (!correct)
-            break;
     }
 
-    return correct;
+    return true;
 }
 
 // Basic Floyd Warshall Algorithm running on the GPU instead of CPU. Uses global memory in the GPU.
@@ -190,7 +184,8 @@ void test_floyd_warshall_gpu(datawrite *writer) {
         if (DO_CHECKS) {
             float final_A[N*N];
             cudaMemcpy(final_A, d_A, N*N*sizeof(float), cudaMemcpyDeviceToHost);
-            check(A, final_A, N);
+            if (check(A, final_A, N))
+                printf("CORRECT!\n");
             cudaFree(d_A); cudaFree(d_B);
         }
 
@@ -280,7 +275,8 @@ void test_tiled_floyd_warshall(datawrite *writer) {
         if (DO_CHECKS) {
             float final_A[N*N];
             cudaMemcpy(final_A, d_A, N*N*sizeof(float), cudaMemcpyDeviceToHost);
-            check(A, final_A, N);
+            if (check(A, final_A, N))
+                printf("CORRECT!\n");
             cudaFree(d_A); cudaFree(d_B);
         }
 
@@ -417,7 +413,8 @@ void test_blocked_floyd_warshall(datawrite *writer) {
         if (DO_CHECKS) {
             float final_G[N*N];
             cudaMemcpy(final_G, d_G, N*N*sizeof(float), cudaMemcpyDeviceToHost);
-            check(G, final_G, N);
+            if (check(G, final_G, N))
+                printf("CORRECT!\n");
             cudaFree(d_G);
         }
 
